@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Cache
+.cache/
+.claude/
+
+# Model checkpoints and saves
+saves/
+models/
+
+# Training data (large files)
+grpo_data/
+grpo_data_all/
+grpo_data_new/
+grpo_data_upload/
+dataset/
+
+# Test outputs
+test_outputs/
+
+# Logs and temporary files
+*.log
+*.out
+*.err
+wandb/
+runs/
+outputs/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+
+# Images
+failed_images.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# VLMEvalKit
+VLMEvalKit/
+
+overthinking-metric/

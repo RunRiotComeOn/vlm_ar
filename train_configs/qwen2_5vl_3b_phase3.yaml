@@ -1,0 +1,48 @@
+### Model Configuration
+# Phase 3: Use the output model from Phase 2 as the starting point
+model_name_or_path: /nas03/yixuh/vlm-adaptive-resoning/LLaMA-Factory/saves/qwen2_5vl-3b/phase/phase2
+image_max_pixels: 262144
+video_max_pixels: 16384
+trust_remote_code: true
+
+### Training Method
+stage: sft
+do_train: true
+finetuning_type: full
+freeze_vision_tower: true
+freeze_multi_modal_projector: true
+freeze_language_model: false
+deepspeed: examples/deepspeed/ds_z3_config.json
+
+### Dataset Configuration - Phase 3 (1/3 of type3 + 1/2 of type2 + all of type1)
+dataset: vision_sr1_phase3
+template: qwen2_vl
+cutoff_len: 2048
+overwrite_cache: true
+preprocessing_num_workers: 32
+dataloader_num_workers: 8
+
+### Output Configuration
+output_dir: saves/qwen2_5vl-3b/phase/phase3
+logging_steps: 10
+save_steps: 500
+plot_loss: true
+overwrite_output_dir: true
+save_only_model: false
+report_to: tensorboard
+
+### Training Hyperparameters
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 8
+learning_rate: 1.0e-5
+num_train_epochs: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true
+ddp_timeout: 180000000
+
+### Evaluation (optional)
+# val_size: 0.1
+# per_device_eval_batch_size: 1
+# eval_strategy: steps
+# eval_steps: 500
