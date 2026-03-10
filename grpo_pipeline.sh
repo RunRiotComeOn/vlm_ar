@@ -156,3 +156,38 @@ python3 -m verl.trainer.main_ppo \
 cd ..
 
 echo -e "${GREEN}Training completed!${NC}"
+
+# =============================================================
+# Merge FSDP checkpoint to HuggingFace format
+# =============================================================
+echo -e "${GREEN}Finding latest checkpoint...${NC}"
+
+LATEST_CKPT=$(ls -d "$OUTPUT_DIR"/global_step_* 2>/dev/null | sort -t_ -k3 -n | tail -1)
+
+if [ -z "$LATEST_CKPT" ]; then
+    echo "ERROR: No checkpoint found in $OUTPUT_DIR"
+    exit 1
+fi
+
+echo "Latest checkpoint: $LATEST_CKPT"
+echo -e "${GREEN}Merging FSDP checkpoint to HuggingFace format...${NC}"
+
+"$ENV_PATH/bin/python3" -m verl.model_merger merge \
+    --backend fsdp \
+    --local_dir "${LATEST_CKPT}/actor" \
+    --target_dir "${LATEST_CKPT}/actor_merged"
+
+echo "Merge completed! Model saved to: ${LATEST_CKPT}/actor_merged"
+
+# =============================================================
+# Upload merged model to HuggingFace
+# =============================================================
+echo -e "${GREEN}Uploading merged model to HuggingFace...${NC}"
+
+"$ENV_PATH/bin/huggingface-cli" upload \
+    yixuH/qwen3_vl_8b_arvlm_grpo \
+    "${LATEST_CKPT}/actor_merged" \
+    . \
+    --repo-type model
+
+echo -e "${GREEN}Upload completed! Model available at: https://huggingface.co/yixuH/qwen3_vl_8b_arvlm_grpo${NC}"
