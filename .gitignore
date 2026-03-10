@@ -16,6 +16,7 @@ build/
 # Model checkpoints and saves
 saves/
 models/
+sft_models/
 
 # Training data (large files)
 grpo_data/

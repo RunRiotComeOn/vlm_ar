@@ -1,5 +1,8 @@
 #!/bin/bash
-# Training script for Stage 2 GRPO with Adaptive Reasoning
+# GRPO Training with Adaptive Reward V2 (Diversity Bonus)
+# Extends V1 with intra-group diversity bonus that decays over training steps.
+# Early training: encourage diverse format exploration across the N responses per prompt.
+# Late training: diversity pressure fades, quality/correctness dominates.
 
 set -e
 
@@ -7,14 +10,14 @@ set -e
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Default parameters
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 SFT_MODEL=""
-DATA_DIR="grpo_data"
-OUTPUT_DIR="saves/qwen2_5vl-3b/grpo/adaptive_reasoning_9k_v4"
-NUM_GPUS=8
+DATA_DIR="grpo_data_new"
+OUTPUT_DIR="saves/qwen3vl-4b/grpo/adaptive_reward"
+NUM_GPUS=4
 ENGINE="vllm"
 
 # Parse command line arguments
@@ -43,12 +46,11 @@ while [[ $# -gt 0 ]]; do
         --help)
             echo "Usage: $0 [options]"
             echo "Options:"
-            echo "  --sft_model <path>     Path to SFT checkpoint (required)"
-            echo "  --data_dir <path>      GRPO data directory (default: grpo_data)"
-            echo "  --output_dir <path>    Output directory (default: saves/qwen2_5vl-3b/grpo/adaptive_reasoning)"
-            echo "  --gpus <num>           Number of GPUs (default: 4)"
+            echo "  --sft_model <path>     Path to SFT checkpoint"
+            echo "  --data_dir <path>      GRPO data directory (default: grpo_data_all)"
+            echo "  --output_dir <path>    Output directory"
+            echo "  --gpus <num>           Number of GPUs (default: 8)"
             echo "  --engine <vllm|sglang> Inference engine (default: vllm)"
-            echo "  --help                 Show this help message"
             exit 0
             ;;
         *)
@@ -58,18 +60,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Auto-detect SFT model if not specified
+# Auto-detect SFT model
 if [ -z "$SFT_MODEL" ]; then
-    # Try to find the latest SFT checkpoint
-    # if [ -d "LLaMA-Factory/saves/qwen2_5vl-3b/full/sft_all" ]; then
-    #     SFT_MODEL="LLaMA-Factory/saves/qwen2_5vl-3b/full/sft_all"
-    #     echo -e "${YELLOW}Auto-detected SFT model: $SFT_MODEL${NC}"
-    if [ -d "LLaMA-Factory/saves/qwen2_5vl-3b/full/sft_9k" ]; then
+    if [ -d "LLaMA-Factory/saves/qwen2_5vl-3b/full/vision_sr1_1_epoch_no_st" ]; then
+        SFT_MODEL="LLaMA-Factory/saves/qwen2_5vl-3b/full/vision_sr1_1_epoch_no_st"
+        echo -e "${YELLOW}Auto-detected SFT model: $SFT_MODEL${NC}"
+    elif [ -d "LLaMA-Factory/saves/qwen2_5vl-3b/full/sft_9k" ]; then
         SFT_MODEL="LLaMA-Factory/saves/qwen2_5vl-3b/full/sft_9k"
         echo -e "${YELLOW}Auto-detected SFT model: $SFT_MODEL${NC}"
     else
         echo -e "${RED}ERROR: SFT model not specified and no default found${NC}"
-        echo "Please specify --sft_model or run SFT training first"
+        echo "Please specify --sft_model or ensure a checkpoint exists"
         exit 1
     fi
 fi
@@ -82,18 +83,21 @@ fi
 
 if [ ! -f "$DATA_DIR/train.parquet" ]; then
     echo -e "${RED}ERROR: GRPO training data not found at $DATA_DIR/train.parquet${NC}"
-    echo "Please run: python prepare_grpo_data.py"
+    echo "Please run: python prepare_grpo_data_new.py"
     exit 1
 fi
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}GRPO Training - Adaptive Reasoning${NC}"
+echo -e "${GREEN}GRPO Training - Adaptive Reward V2${NC}"
+echo -e "${GREEN}  (with Diversity Bonus)${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo -e "SFT Model: ${YELLOW}$SFT_MODEL${NC}"
 echo -e "Data Directory: ${YELLOW}$DATA_DIR${NC}"
 echo -e "Output Directory: ${YELLOW}$OUTPUT_DIR${NC}"
 echo -e "Number of GPUs: ${YELLOW}$NUM_GPUS${NC}"
 echo -e "Inference Engine: ${YELLOW}$ENGINE${NC}"
+echo -e "Reward Manager: ${YELLOW}adaptive_reward_v2${NC}"
+echo -e "Diversity: ${YELLOW}weight=0.5, decay=cosine${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Install verl if needed
@@ -107,17 +111,17 @@ fi
 # Set environment variables
 export PYTHONPATH="${PYTHONPATH}:$(pwd):$(pwd)/verl"
 
-# NCCL settings for robustness
-export NCCL_TIMEOUT=7200  # 2 hours timeout (default is 30 minutes)
+# NCCL settings
+export NCCL_TIMEOUT=7200
 export NCCL_DEBUG=WARN
-export NCCL_IB_TIMEOUT=22  # Increase InfiniBand timeout
-export NCCL_BLOCKING_WAIT=1  # Use blocking wait for more stable communication
+export NCCL_IB_TIMEOUT=22
+export NCCL_BLOCKING_WAIT=1
 
-# PyTorch distributed timeout (CRITICAL for fixing the all_gather timeout)
-export TORCH_DISTRIBUTED_TIMEOUT=7200  # 2 hours in seconds
-export TORCH_NCCL_ASYNC_ERROR_HANDLING=1  # Better error reporting
+# PyTorch distributed timeout
+export TORCH_DISTRIBUTED_TIMEOUT=7200
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 
-# VLLM settings for stability
+# VLLM settings
 export VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 
@@ -125,7 +129,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 mkdir -p "$OUTPUT_DIR"
 
 # Run training
-echo -e "${GREEN}Starting GRPO training...${NC}"
+echo -e "${GREEN}Starting GRPO training with diversity bonus...${NC}"
 
 cd verl
 
@@ -133,7 +137,7 @@ python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=../$DATA_DIR/train.parquet \
     data.val_files=../$DATA_DIR/val.parquet \
-    data.train_batch_size=256 \
+    data.train_batch_size=128 \
     data.val_batch_size=32 \
     data.max_prompt_length=8192 \
     data.max_response_length=2048 \
@@ -146,8 +150,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.use_fused_kernels=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=64 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.ppo_epochs=1 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.02 \
@@ -157,8 +161,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.clip_ratio=0.2 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=$ENGINE \
     +actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
@@ -171,19 +175,18 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     algorithm.use_kl_in_reward=False \
     algorithm.kl_ctrl.kl_coef=0.001 \
-    custom_reward_function.path=../reward_functions/adaptive_reasoning_reward.py \
-    custom_reward_function.name=create_reward_function \
+    reward_model.reward_manager=adaptive_reward_v2 \
     trainer.critic_warmup=0 \
-    trainer.logger='["console","tensorboard"]' \
-    trainer.project_name='verl_grpo_adaptive_reasoning_9k_v4' \
-    trainer.experiment_name='qwen2_5vl_3b_adaptive_9k_v4' \
+    trainer.logger='["console","tensorboard","wandb"]' \
+    trainer.project_name='verl_grpo_adaptive_reward' \
+    trainer.experiment_name='qwen3vl_2b_adaptive_reward' \
     trainer.default_local_dir=../$OUTPUT_DIR \
     trainer.n_gpus_per_node=$NUM_GPUS \
     trainer.nnodes=1 \
     trainer.resume_mode=auto \
-    trainer.save_freq=10 \
+    trainer.save_freq=20 \
     trainer.test_freq=20 \
-    trainer.total_epochs=1
+    trainer.total_epochs=2
 
 cd ..
 
